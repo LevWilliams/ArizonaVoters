@@ -1,0 +1,112 @@
+---
+title: "Data.World ArizonaVoters"
+author: "Lev Williams"
+date: "October 16, 2018"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include=FALSE}
+library(data.world)
+data.world::set_config(save_config(auth_token = "eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiJwcm9kLXVzZXItY2xpZW50OmxldndpbGxpYW1zIiwiaXNzIjoiYWdlbnQ6bGV2d2lsbGlhbXM6OjZhMzIwNDNiLTI4MWItNDkyNS1hZjI4LWZmYTJlYzdjYjQ0NSIsImlhdCI6MTUzNjk2MzE0Miwicm9sZSI6WyJ1c2VyX2FwaV9hZG1pbiIsInVzZXJfYXBpX3JlYWQiLCJ1c2VyX2FwaV93cml0ZSJdLCJnZW5lcmFsLXB1cnBvc2UiOnRydWV9.eD93xs6C-tcCXjNUifbkH7ZXWA9lK8Bx18mBe-y3AN2vEPc38lNXJeqSfAtg95f5oab3PV5-P24zCwsZ8jmeHA"))
+```
+
+Connecting to API to obtain data
+
+```{r}
+ArizonaVoters <- download_file_as_data_frame(
+  "vlandry/arizona-registered-voters-by-county-january-2017",
+  "Arizona voter registration jan 2017.csv")
+```
+
+Loading essential libraries
+
+```{r,results=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(lubridate)
+```
+
+***Data Cleanup***
+
+```{r}
+glimpse(ArizonaVoters)
+```
+
+Unfortunately the data in its current form has all the numerical data as factors, so we will need to transform them into numerical values before we can proceed with further analysis.
+
+```{r}
+library(varhandle)
+
+facttonum <- function(x){
+  return(as.numeric(gsub(",","",unfactor(x))))
+}
+
+for(i in 4:9){
+  ArizonaVoters[,i] <- facttonum(ArizonaVoters[,i])
+}
+```
+
+We can now procede with our initial data analysis. It will likely be better to segregate the data by Date.Period as it is essentially time data formatted as a factor variable, in fact it might be better to turn the factor variable into a date variable. According to the provider of the data, P.E. 2016 and G.E 2016 are the Presidental (im assuming Primary) and General elections for the year which happened on 3/22/2016 and 11/8/2016.
+
+```{r}
+ArizonaVoters$Date.Period <- unfactor(ArizonaVoters$Date.Period)
+a <- ArizonaVoters[1,3]
+b <- ArizonaVoters[2,3]
+for(i in 1:length(ArizonaVoters[,3])){
+  if(ArizonaVoters[i,3] == a){
+    ArizonaVoters[i,3] = "03-22-2016"
+  }
+  else if(ArizonaVoters[i,3] == b){
+    ArizonaVoters[i,3] = "11-06-2016"
+  }
+  else{
+    ArizonaVoters[i,3] = "01-01-2017"
+  }
+}
+ArizonaVoters[1,3]
+ArizonaVoters$Date.Period <- as.Date(ArizonaVoters$Date.Period,format= "%m-%d-%Y")
+```
+
+In order to carry out an analysis properly we will need to turn the data into a "long form" format.
+
+```{r, tidy=TRUE, tidy.opts=list(width.cutoff=60)}
+LongVoters <- ArizonaVoters %>% gather(key = Party, value = Members, Democratic, Green, Libertarian, Republican, Other)
+```
+
+
+***Data Analysis***
+
+In order to see the overall trend of the state's voting population, we need to merge together the total voting population for each of the parties and see how they compare to one another from time stamp to time stamp.
+
+```{r}
+PartyTotal <- LongVoters %>% select(Date.Period, Party, Members) %>% 
+  group_by(Date.Period, Party) %>% summarise(TotalMembers = sum(Members))
+
+PartyTotal
+```
+
+From here we can construct a line graph to visually track the growth of each party.
+
+```{r}
+PartyTotal %>% ggplot(aes(x=Date.Period,y=TotalMembers,color=Party)) +
+  geom_point() + geom_line()
+```
+
+As it seems, the larger parties grow more quickly than the smaller ones however we may need to look into just how much each party grew relative to its size during the time from the Presidental Primary to January 1st, 2017.
+
+```{r, tidy=TRUE, tidy.opts=list(width.cutoff=60)}
+propinc <- numeric(5)
+for(i in 1:5){
+  propinc[i] <- (PartyTotal[i+10,3]/PartyTotal[i,3])-1
+  propinc[i] <- round(propinc[[i]],3)*100
+  print(paste("The", PartyTotal[i,2], "Party grew by", propinc[i], "percent from the Presidental Primary to January 1, 2017."))
+}
+```
+
+So although it seemed like the larger parties grew even more quickly than the smaller ones, proportionally speaking, the smaller parties grew more quickly relative to their size.
+
+Special Thanks to Victor Landry on data.world for providing the dataset.
